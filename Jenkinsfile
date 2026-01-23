@@ -93,7 +93,7 @@ pipeline {
                 script {
                     sh '''
                         # Start all services
-                        docker-compose up -d
+                        docker-compose up --build
                         
                         # Wait for services to be ready
                         echo "Waiting for services to start..."
