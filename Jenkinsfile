@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // Use the names from your original screenshot
         BACKEND_IMAGE  = "backend"
         FRONTEND_IMAGE = "frontend"
         NGINX_IMAGE    = "nginx"
@@ -13,8 +12,7 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    echo "Building all images..."
-                    // Use 'dir' to navigate into your subfolders
+                    echo "Building backend, frontend and nginx images..."
                     dir('backend')  { sh "docker build -t ${BACKEND_IMAGE}:${BUILD_TAG} ." }
                     dir('frontend') { sh "docker build -t ${FRONTEND_IMAGE}:${BUILD_TAG} ." }
                     dir('nginx')    { sh "docker build -t ${NGINX_IMAGE}:${BUILD_TAG} ." }
@@ -24,8 +22,7 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                echo "Deploying with Docker Compose..."
-                // Runs from the root folder where your docker-compose.yml is
+                echo "Deployment with docker-compose..."
                 sh "docker-compose up"
             }
         }
