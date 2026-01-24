@@ -1,20 +1,6 @@
 version: '3.8'
 
-services:
-  jenkins:
-    build: ./jenkins
-    container_name: task_jenkins
-    privileged: true
-    user: root
-    ports:
-      - "8080:8080"      # Jenkins UI
-      - "50000:50000"    # Jenkins agent
-    volumes:
-      - jenkins_home:/var/jenkins_home
-      - /var/run/docker.sock:/var/run/docker.sock  # Access host Docker
-      - ${PWD}:/workspace
-    networks:
-      - jenkins-network 
+services: 
 
   db:
     image: postgres:15-alpine
@@ -104,7 +90,6 @@ services:
 
 volumes:
   postgres_data:
-  jenkins_home:
 
 
 networks:
@@ -114,6 +99,3 @@ networks:
   frontend-network:
     driver: bridge
     name: task_frontend_net2
-  jenkins-network:
-    driver: bridge
-    name: task_jenkins_net2
