@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-manager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: task-manager
+  template:
+    metadata:
+      labels:
+        app: task-manager
+    spec:
+      containers:
+      - name: task_db
+        image: postgres:15-alpine
+        imagePullPolicy: Never  # Important for local images
+        env_file: .env
+        environment:
+          POSTGRES_DB: ${POSTGRES_DB}
+          POSTGRES_USER: ${POSTGRES_USER}
+          POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        volumes:
+          - postgres_data:/var/lib/postgresql/data
+        networks:
+          - backend-network
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+          interval: 5s
+          timeout: 5s
+          retries: 5
+
+      - name: task_redis
+        image: redis:7-alpine
+        imagepullpolicy: Never
+        ports:
+          - "6379:6379"
+        networks:
+          - backend-network
+        healthcheck:
+          test: ["CMD", "redis-cli", "ping"]
+          interval: 5s
+          timeout: 3s
+          retries: 5
+  
+      - name: task_backend
+        image: backend:latest
+        imagepullpolicy: Never
+        env_file: .env
+        environment:
+          DB_HOST: db
+          DB_NAME: ${POSTGRES_DB}
+          DB_USER: ${POSTGRES_USER}
+          DB_PASSWORD: ${POSTGRES_PASSWORD}
+          REDIS_HOST: redis
+        depends_on:
+          db:
+            condition: service_healthy
+          redis:
+            condition: service_healthy
+        networks:
+          - backend-network
+          - frontend-network
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 20s
+
+      - name: task_frontend
+        image: frontend:latest
+        imagepullpolicy: Never
+        networks:
+          -frontend-network
+      
+      - name: task_nginx
+        image: nginx:latest
+        imagepullpolicy: Never
+        app_port:
+          - "${APP_PORT}:80"
+        depends_on:
+          - task_backend
+          - task_frontend
+        networks:
+          - frontend-network
+        healthcheck:
+          test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+          start_period: 10s
+
+
+volumes:
+  postgres_data:
+
+
+networks:
+  backend-network:
+    driver: bridge
+    name: task_backend_net2
+  frontend-network:
+    driver: bridge
+    name: task_frontend_net2

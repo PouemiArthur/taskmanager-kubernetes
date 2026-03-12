@@ -4,6 +4,9 @@ import redis
 import json
 import os
 import time
+import psycopg2.pool
+from contextlib import contextmanager
+import math
 
 app = Flask(__name__)
 
@@ -13,26 +16,24 @@ redis_client = redis.Redis(
     decode_responses=True
 )
 
-def get_db_connection():
-    max_retries = 5
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            conn = psycopg2.connect(
-                host=os.getenv('DB_HOST', 'localhost'),
-                database=os.getenv('DB_NAME', 'tasks'),
-                user=os.getenv('DB_USER', 'postgres'),
-                password=os.getenv('DB_PASSWORD', 'password')
-            )
-            return conn
-        except psycopg2.OperationalError as e:
-            if attempt < max_retries - 1:
-                print(f"Database connection failed. Retrying in {retry_delay}s... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(retry_delay)
-            else:
-                print(f"Failed to connect to database after {max_retries} attempts")
-                raise
+db_pool = psycopg2.pool.ThreadedConnectionPool(
+    minconn=1,
+    maxconn=20,
+    host=os.getenv('DB_HOST', 'localhost'),
+    database=os.getenv('DB_NAME', 'tasks'),
+    user=os.getenv('DB_USER', 'postgres'),
+    password=os.getenv('DB_PASSWORD', 'mypasswordpjr12')
+)
+
+@contextmanager
+def get_db_conn():
+    """Context manager to handle getting and returning connections to the pool."""
+    conn = db_pool.getconn()
+    try:
+        yield conn
+    finally:
+        # Crucial: Always return the connection back to the pool
+        db_pool.putconn(conn)
 
 def init_db():
     conn = get_db_connection()
@@ -56,7 +57,13 @@ def init_db():
 def health():
     return jsonify({'status': 'healthy'}), 200
 
-@app.route('/tasks', methods=['GET'])
+@app.route('/api/stress')
+def stress():
+      for i in range(1000000):
+          math.sqrt(i)
+      return jsonify({"message":"CPU usage increased!"})
+
+@app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     cached_tasks = redis_client.get('all_tasks')
     if cached_tasks:
@@ -85,7 +92,7 @@ def get_tasks():
     
     return jsonify(tasks_list)
 
-@app.route('/tasks/<int:task_id>', methods=['GET'])
+@app.route('/api/tasks/<int:task_id>', methods=['GET'])
 def get_task(task_id):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -106,33 +113,27 @@ def get_task(task_id):
         'updated_at': task[5].isoformat() if task[5] else None
     })
 
-@app.route('/tasks', methods=['POST'])
+@app.route('/api/tasks', methods=['POST'])
 def create_task():
     data = request.get_json()
     title = data.get('title')
     description = data.get('description', '')
     
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        'INSERT INTO tasks (title, description) VALUES (%s, %s) RETURNING id',
-        (title, description)
-    )
-    task_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    # Using 'with' ensures the connection returns to the pool even if an error occurs
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO tasks (title, description) VALUES (%s, %s) RETURNING id',
+            (title, description)
+        )
+        task_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
     
     redis_client.delete('all_tasks')
-    
-    return jsonify({
-        'id': task_id,
-        'title': title,
-        'description': description,
-        'completed': False
-    }), 201
+    return jsonify({'id': task_id, 'title': title, 'completed': False}), 201
 
-@app.route('/tasks/<int:task_id>', methods=['PUT'])
+@app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 def update_task(task_id):
     data = request.get_json()
     
@@ -177,7 +178,7 @@ def update_task(task_id):
     
     return jsonify({'message': 'Task updated successfully'}), 200
 
-@app.route('/tasks/<int:task_id>', methods=['DELETE'])
+@app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
     conn = get_db_connection()
     cur = conn.cursor()
