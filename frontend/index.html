@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PJr Task Manager</title>
+    <title>NDT Task Manager</title>
     <style>
         * {
             margin: 0;
@@ -204,7 +204,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>PJr Docker Task Manager</h1>
+        <h1>NoDownTime Task Manager by PJr</h1>
         
         <div class="stats">
             <div class="stat-card">
@@ -226,7 +226,7 @@
             <button onclick="addTask()">Add Task</button>
         </div>
         
-        <textarea id="taskDescription" placeholder="Task description (optional)..."></textarea>
+        <textarea id="taskDescription" placeholder="Task description (optional) but recommended"></textarea>
         
         <div id="error" class="error" style="display: none;"></div>
         <div id="loading" class="loading" style="display: none;">Loading tasks...</div>
@@ -286,7 +286,7 @@
                     </div>
                     <div class="task-actions">
                         <button class="btn-small btn-complete" onclick="toggleTask(${task.id}, ${!task.completed})">
-                            ${task.completed ? '↩️ Undo' : '✓ Complete'}
+                            ${task.completed ? 'Undo' : 'Complete'}
                         </button>
                         <button class="btn-small btn-delete" onclick="deleteTask(${task.id})">
                              Delete

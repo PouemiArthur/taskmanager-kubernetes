@@ -26,7 +26,7 @@ stringData:
   POSTGRES_PASSWORD: "mypasswordpjr12"
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: postgres
 spec:
@@ -93,7 +93,7 @@ metadata:
 spec:
   targetRef:
     apiVersion: apps/v1
-    kind: Deployment
+    kind: StatefulSet
     name: postgres
   updatePolicy:
     updateMode: Auto

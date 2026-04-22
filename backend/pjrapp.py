@@ -6,7 +6,12 @@ import os
 import time
 import psycopg2.pool
 from contextlib import contextmanager
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import math
+
+REQUEST_COUNT = Counter('backend_requests_total', 'Total API requests', ['method', 'endpoint', 'http_status'])
+REQUEST_LATENCY = Histogram('backend_request_latency_seconds', 'Latency of API requests', ['endpoint'])
+DB_CONNECTION_ERRORS = Counter('db_connection_errors_total', 'Total failed DB connection attempts')
 
 app = Flask(__name__)
 
@@ -31,26 +36,27 @@ def get_db_conn():
     conn = db_pool.getconn()
     try:
         yield conn
+    except psycopg2.OperationalError as e:
+        DB_CONNECTION_ERRORS.inc()    
     finally:
         # Crucial: Always return the connection back to the pool
         db_pool.putconn(conn)
 
 def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id SERIAL PRIMARY KEY,
-            title VARCHAR(200) NOT NULL,
-            description TEXT,
-            completed BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    cur.close()
-    conn.close()
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(200) NOT NULL,
+                description TEXT,
+                completed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        cur.close()
     print("Database initialized successfully!")
 
 @app.route('/health')
@@ -63,8 +69,13 @@ def stress():
           math.sqrt(i)
       return jsonify({"message":"CPU usage increased!"})
 
+@app.route('/metrics')
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
+    start_time = time.time()
     cached_tasks = redis_client.get('all_tasks')
     if cached_tasks:
         print("Cache HIT! Returning from Redis")
@@ -72,12 +83,11 @@ def get_tasks():
     
     print("Cache MISS! Fetching from database")
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT id, title, description, completed, created_at, updated_at FROM tasks')
-    tasks = cur.fetchall()
-    cur.close()
-    conn.close()
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT id, title, description, completed, created_at, updated_at FROM tasks')
+        tasks = cur.fetchall()
+        cur.close()
     
     tasks_list = [{
         'id': task[0],
@@ -89,17 +99,18 @@ def get_tasks():
     } for task in tasks]
     
     redis_client.setex('all_tasks', 60, json.dumps(tasks_list))
+    REQUEST_LATENCY.labels(endpoint='/api/tasks').observe(time.time() - start_time)
+    REQUEST_COUNT.labels(method='GET', endpoint='/api/tasks', http_status=200).inc()
     
     return jsonify(tasks_list)
 
 @app.route('/api/tasks/<int:task_id>', methods=['GET'])
 def get_task(task_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT id, title, description, completed FROM tasks WHERE id = %s', (task_id,))
-    task = cur.fetchone()
-    cur.close()
-    conn.close()
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT id, title, description, completed, created_at, updated_at FROM tasks WHERE id = %s', (task_id,))
+        task = cur.fetchone()
+        cur.close()
     
     if task is None:
         return jsonify({'error': 'Task not found'}), 404
@@ -119,7 +130,6 @@ def create_task():
     title = data.get('title')
     description = data.get('description', '')
     
-    # Using 'with' ensures the connection returns to the pool even if an error occurs
     with get_db_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -162,41 +172,36 @@ def update_task(task_id):
     
     query = f"UPDATE tasks SET {', '.join(updates)} WHERE id = %s"
     
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(query, values)
-    rows_affected = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(query, values)
+        rows_affected = cur.rowcount
+        conn.commit()
+        cur.close()
     
     if rows_affected == 0:
         return jsonify({'error': 'Task not found'}), 404
     
-    # Invalidate cache when task is updated
     redis_client.delete('all_tasks')
     
     return jsonify({'message': 'Task updated successfully'}), 200
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('DELETE FROM tasks WHERE id = %s', (task_id,))
-    rows_affected = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
+    with get_db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute('DELETE FROM tasks WHERE id = %s', (task_id,))
+        rows_affected = cur.rowcount
+        conn.commit()
+        cur.close()
     
     if rows_affected == 0:
         return jsonify({'error': 'Task not found'}), 404
     
-    # Invalidate cache when task is deleted
     redis_client.delete('all_tasks')
     
     return jsonify({'message': 'Task deleted'}), 200
 
-# New endpoint to check cache stats
 @app.route('/cache/stats')
 def cache_stats():
     info = redis_client.info('stats')
@@ -212,3 +217,4 @@ if __name__ == '__main__':
     init_db()
     print("Flask app running on port 5000")
     app.run(host='0.0.0.0', port=5000, debug=True)
+
