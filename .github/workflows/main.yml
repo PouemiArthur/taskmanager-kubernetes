@@ -1,0 +1,25 @@
+name: deploy to kubernetes cluster
+on:
+  push:
+    branches: [ master ]
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: checkout files
+        uses: actions/checkout@v4
+
+      - name: build docker images 
+        run: |
+          docker build -t backend:1.0.7 ./backend
+          docker build -t frontend:1.0.6 ./frontend
+
+      - name: Lad images to the kind K8s cluster
+        run: |
+          kind load docker-image backend:1.0.7 --name kind
+          kind load docker-image frontend:1.0.6 --name kind
+
+      - name: update deployment on k8s cluster
+        run: |
+          kubectl set image deployment/backend backend=backend:1.0.7
+          kubectl set image deployment/frontend frontend=frontend:1.0.6
