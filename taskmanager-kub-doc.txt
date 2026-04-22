@@ -1,0 +1,11 @@
+1. Docker images:
+  -use specific image names or tags like 1.0.0 instead of latest.
+  -specify image name in the kubernetes manifest before deploying.
+  -rollout restart does not pull manifest changes.
+
+2. Nginx:
+  rewrite line strips actual path to the api thus frontend cannot communicate with backend.
+
+2. Metric-server/api:
+  after metric-server installation, edit the metric server deployment to allow insecure-tls under container args(- --kubelet-
+insecure-tls) on personal practice clusters.
