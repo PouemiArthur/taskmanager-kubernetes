@@ -235,7 +235,7 @@
     </div>
 
     <script>
-        const API_URL = '/api';  // Nginx will proxy this to backend
+        const API_URL = '/api'; 
 
         async function fetchTasks() {
             try {
@@ -302,7 +302,7 @@
             const description = document.getElementById('taskDescription').value.trim();
             
             if (!title) {
-                showError('Please enter a task title');
+                showError('Please enter the task title');
                 return;
             }
             
