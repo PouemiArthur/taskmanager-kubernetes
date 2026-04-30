@@ -23,7 +23,7 @@ redis_client = redis.Redis(
 
 db_pool = psycopg2.pool.ThreadedConnectionPool(
     minconn=1,
-    maxconn=20,
+    maxconn=30,
     host=os.getenv('DB_HOST', 'localhost'),
     database=os.getenv('DB_NAME', 'tasks'),
     user=os.getenv('DB_USER', 'postgres'),
@@ -39,7 +39,6 @@ def get_db_conn():
     except psycopg2.OperationalError as e:
         DB_CONNECTION_ERRORS.inc()    
     finally:
-        # Crucial: Always return the connection back to the pool
         db_pool.putconn(conn)
 
 def init_db():
